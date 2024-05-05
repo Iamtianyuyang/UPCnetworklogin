@@ -4,7 +4,7 @@
 #include<time.h>
 #include<getopt.h>
 #include<curl/curl.h>
-#include<libxml/HTMLparser.h>
+#include<stdlib.h>
 
 #define VERSION "1.0.0"
 static const struct option longopts[] ={
