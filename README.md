@@ -1,6 +1,6 @@
 # Linux登录校园网
 
-![校园网登录界面](D:\code\C\curl\campusnet\src\src20240504\校园网登录界面.png)
+![校园网登录界面](校园网登录界面.png)
 
 ## c语言版使用方法
 
