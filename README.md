@@ -1,10 +1,10 @@
 # Linux登录校园网
 
-![image-20240505175644024](校园网登录界面.png)
+![image-20240505175644024](C:\Users\A\AppData\Roaming\Typora\typora-user-images\image-20240505175644024.png)
 
 ## 使用方法
 
-1. 编译 make (需要libcurl)
+1. 编译 make
 
 2. 参数设置
 
