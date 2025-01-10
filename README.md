@@ -19,7 +19,31 @@
    ```
    ./login -u campuscardid -p campuscardpwd -s cmcc
    ```
+4. 启动方式
 
+   ```
+   sudo vim /etc/systemd/system/upc.service
+   [Unit]
+   # 服务名称，可自定义
+   Description = upc client
+   After = network.target syslog.target
+   Wants = network.target
+
+   [Service]
+   Type = simple
+   # 启动login的命令，需修改为您的login的安装路径
+   ExecStart = /path/login -u campuscardid -p  campuscardpwd -s cmcc
+       
+   [Install]
+   WantedBy = multi-user.target
+   ##启动服务
+   sudo systemctl daemon-reload
+   sudo systemctl start upc.service
+   ##开机自启
+   sudo systemctl enable upc.service
+   ##查看状态
+   sudo systemctl status upc.service
+   ```
 ## python版使用方法(pythonsrc20240507)
 
 1. 环境
