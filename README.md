@@ -2,7 +2,7 @@
 
 ![校园网登录界面](校园网登录界面.png)
 
-## c语言版使用方法
+## c语言版使用方法(UPCnetworklogin)
 
 1. 编译 make
 
@@ -20,7 +20,7 @@
    ./login -u campuscardid -p campuscardpwd -s cmcc
    ```
 
-## python版使用方法（pythonsrc20240507）
+## python版使用方法(pythonsrc20240507)
 
 1. 环境
    `python 3.10.0`
