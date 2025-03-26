@@ -2,7 +2,7 @@
 
 ![校园网登录界面](校园网登录界面.png)
 
-## c语言版使用方法(UPCnetworklogin)
+## c语言版使用方法(c)
 
 1. 编译 make
 
@@ -44,7 +44,7 @@
    ##查看状态
    sudo systemctl status upc.service
    ```
-## python版使用方法(pythonsrc20240507)
+## python版使用方法(python)
 
 1. 环境
    `python 3.10.0`
