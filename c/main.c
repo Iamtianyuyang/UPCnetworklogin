@@ -1,18 +1,19 @@
 /* UPC , 2024.5.4*/
-#include<stdio.h>
-#include<string.h>
-#include<time.h>
-#include<getopt.h>
-#include<curl/curl.h>
-#include<stdlib.h>
-
-#define VERSION "1.0.0"
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <getopt.h>
+#include <curl/curl.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#define VERSION "1.0.1"
 static const struct option longopts[] ={
     {"help", no_argument, NULL, 'h'},
     {"version", no_argument, NULL, 'V'},
     {"username", required_argument, NULL, 'u'},
     {"password", required_argument, NULL, 'p'},
     {"sercive", required_argument, NULL, 's'},
+    {"loginwebsite", required_argument, NULL, 'w'},
     {NULL, 0, NULL, 0}
 };
 struct my_info
@@ -25,6 +26,7 @@ struct user
     char *username;
     char *pwd;
     char *nettype;
+    char *loginwebsite;
 };
 struct CharDictionary 
 {
@@ -97,18 +99,24 @@ char *transcode(char *indata, int length)
     // printf("indata %s\n",indata);
     return outdata;
 }
+typedef struct {
+    char last_effective_url[1024];
+    int redirect_count;
+} RedirectTracker;
 static size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 {
-    struct my_info *i = userdata;
-    size_t realsize = nitems * size;
-    // i->secret = (char *)realloc(i->secret,i->shoesize + realsize + 1);
-    char *temp = malloc(realsize + i->shoesize + 1);
-    strcpy(&temp[0],i->secret);
-    strcpy(&temp[i->shoesize],buffer);
-    i->secret = temp;
-    i->shoesize += realsize; 
-    return nitems * size;
+   struct my_info *i = userdata;
+   size_t realsize = nitems * size;
+   // i->secret = (char *)realloc(i->secret,i->shoesize + realsize + 1);
+   char *temp = malloc(realsize + i->shoesize + 1);
+   strcpy(&temp[0],i->secret);
+   strcpy(&temp[i->shoesize],buffer);
+   i->secret = temp;
+   i->shoesize += realsize;
+   return nitems * size;
 }
+
+
 static size_t url_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 {
     return nitems * size;
@@ -144,125 +152,55 @@ char *findresult(char* response, char flag[128])
     return result;
 
 }
-int getUrl(char *filename , char* queryString)
-{   
-    CURL *curl;
-    CURLcode res;
-    char *loginURl;
-    struct curl_slist *list = NULL;
-    curl_global_init(CURL_GLOBAL_ALL);
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
-    headers = curl_slist_append(headers, "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
-    curl  = curl_easy_init();
-    if(curl)
-    {  
-       struct my_info headerdata = {0 , ""};
-       
-       curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-       curl_easy_setopt(curl, CURLOPT_COOKIEFILE,"");
-       curl_easy_setopt(curl, CURLOPT_COOKIEJAR,"");
-       curl_easy_setopt(curl, CURLOPT_URL,"http://lan.upc.edu.cn/");
-       curl_easy_setopt(curl, CURLOPT_HTTPGET,1L);
-       curl_easy_setopt(curl, CURLOPT_HTTP_VERSION,CURL_HTTP_VERSION_1_1);
-       curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,5);
-       curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION,header_callback);
-       curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerdata);
-       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, url_callback);
-
-
-    //    curl_easy_setopt(curl, CURLOPT_HEADERDATA, fp);
-       res = curl_easy_perform(curl);
-       if(res == CURLE_OK)
-       {
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-       } 
-       if(res != CURLE_OK)
-       {
-        printf("失败");
-       }
-       char *line = strtok(headerdata.secret,"\n");
-       int lineNumber = 1;
-       while(line != NULL){
-        if(strstr(line, "wlanuserip") != NULL){
-            char temp[strlen(line)-50];
-            memcpy(temp,line + 50,strlen(line)-49);
-            loginURl = malloc(strlen(line)-50);
-            loginURl = temp;
-            strcpy(queryString,loginURl);
-        }
-	if(strstr(line, "./success") != NULL)
-        {
-		printf("success\n");
-                exit(0);
-        }
-
-        line = strtok(NULL, "\n");
-        lineNumber++;   
-    }
-    }
-    curl_global_cleanup();
-    curl_slist_free_all(list);
-    return 0;
-}
-int login(char *quertyString, char *username, char *password, char *service)
+int login(char *quertyString, char *username, char *password, char *service, char *loginwebsite ,CURL *curl, CURLcode res)
 {
-    CURL *curl;
-    CURLcode res;
-    curl_global_init(CURL_GLOBAL_ALL);
     struct curl_slist *headers = NULL;
     int length = 33;
     char *jsession = (char *)malloc((length + 1) * sizeof(char));
     char *cookie = (char *)malloc(200 * sizeof(char));
     char *postdata = (char *)malloc(1000 * sizeof(char));
     jsession = jsessionid(length);
-    // printf("%s\n",jsession);
-    headers = curl_slist_append(headers,"Host:lan.upc.edu.cn");
-    // headers = curl_slist_append(headers,"Content-Length:344");
-    // headers = curl_slist_append(headers,"Connection:keep-alive");
+    char *temp = (char *)malloc(200 * sizeof(char)); 
+    sprintf(temp, "Host:%s",loginwebsite);
+    headers = curl_slist_append(headers,temp);
     headers = curl_slist_append(headers,"User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
     headers = curl_slist_append(headers,"Content-Type:application/x-www-form-urlencoded; charset=UTF-8");
     headers = curl_slist_append(headers,"Accept:*/*");
-    headers = curl_slist_append(headers,"Origin:http://lan.upc.edu.cn");
+    sprintf(temp, "Origin:http://%s",loginwebsite); 
+    headers = curl_slist_append(headers,temp);
     headers = curl_slist_append(headers,"Accept-Encoding:gzip, deflate");
     
     sprintf(cookie, "Cookie:EPORTAL_COOKIE_PASSWORD=; EPORTAL_COOKIE_USERNAME=; EPORTAL_COOKIE_DOMAIN=true; EPORTAL_COOKIE_OPERATORPWD=; JSESSIONID=%s", jsession);
-    // printf("%s\n",cookie);
     // headers = curl_slist_append(headers,cookie);
-    sprintf(postdata, "userId=%s&password=%s&service=%s&queryString=%s&operatorPwd=&operatorUserId=&validcode=&passwordEncrypt=false", username, password, service, quertyString);
+    sprintf(postdata, "userId=%s&password=%s&service=%s&operatorPwd=&operatorUserId=&validcode=&passwordEncrypt=false&queryString=%s", username, password, service, quertyString);
 
-    curl  = curl_easy_init();
-    if(curl)
+    
+    struct my_info headerdata = {0 , ""};
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    sprintf(temp, "http://%s/eportal/InterFace.do?method=login",loginwebsite); 
+    curl_easy_setopt(curl, CURLOPT_URL, temp);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postdata);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,2000);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, url_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, header_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &headerdata);
+    
+    res = curl_easy_perform(curl);
+    if(res == CURLE_OK)
     {
-        struct my_info headerdata = {0 , ""};
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_URL, "http://lan.upc.edu.cn/eportal/InterFace.do?method=login");
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postdata);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,2000);
-        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, url_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, header_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &headerdata);
-        
-        res = curl_easy_perform(curl);
-        if(res == CURLE_OK)
-        {
-         curl_slist_free_all(headers);
-         curl_easy_cleanup(curl);
-         printf("NOTICE:\n");
-         printf("    %s\n",findresult(headerdata.secret, "\"result\":\""));
-         printf("    %s\n",findresult(headerdata.secret, "\"message\":\""));
-        } 
-        if(res != CURLE_OK)
-        {
-         printf("failed!\n");
-        }
+     printf("提示:\n");
+     printf("    %s\n",findresult(headerdata.secret, "\"result\":\""));
+     printf("    %s\n",findresult(headerdata.secret, "\"message\":\""));
+    } 
+    if(res != CURLE_OK)
+    {
+     printf("登录失败!\n");
     }
-    curl_global_cleanup();
     free(postdata);
     free(cookie);
     free(jsession);
+    free(temp);
     return 0;
 }
 static void print_help()
@@ -273,6 +211,7 @@ static void print_help()
     printf("    -u, --username      your campus card ID\n");
     printf("    -p, --password      your campus card password\n");
     printf("    -s, --service       your campus network operator: cmcc or unicom or ctcc or default or local\n");
+    printf("    -w, --loginwebsite       your campus network login website :if you use wifi : wlan.upc.edu.cn if you use lan : lan.upc.edu.cn \n");
 } 
 static void check_information(struct user my)
 {
@@ -292,21 +231,94 @@ static void check_information(struct user my)
     {
         printf("    please enter you sercive.  -s or --service\n");
     }
+    if(my.loginwebsite == NULL)                                         
+    {                                                              
+        printf("    please enter your campus network login website.  -w or --loginwebsite\n");
+    }                                                              
     if(my.username == NULL || my.pwd == NULL || my.nettype == NULL)
     {
         printf("    more information please use -h or --help.\n");
         exit(EXIT_SUCCESS);
     }
 }
+/**
+ * 检测网络是否联通
+ * @param host 要ping的目标主机，可以是IP或域名
+ * @param timeout_sec ping超时时间(秒)
+ * @return 1表示网络联通，0表示不联通
+ */
+int is_network_available(const char *host, int timeout_sec) {
+    char command[256];
+    // 构造ping命令
+    // -c 1: 发送1个包
+    // -W (timeout_sec): 等待超时时间(秒)
+    snprintf(command, sizeof(command), "ping -c 1 -W %d %s > /dev/null 2>&1", 
+             timeout_sec, host);
+    
+    // 执行ping命令并返回状态
+    return system(command) == 0;
+}
+int get_final_redirect_url(char *loginwebsite, char *queryString, CURL *curl, CURLcode res) 
+{
+                                            
+    struct curl_slist *headers = NULL;
+    char *loginURl;
+    char *temp = (char *)malloc(200 * sizeof(char)); 
+    struct my_info headerdata = {0 , ""};
+    headers = curl_slist_append(headers, "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
+    headers = curl_slist_append(headers, "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_COOKIEFILE,"");
+    curl_easy_setopt(curl, CURLOPT_COOKIEJAR,"");
+    sprintf(temp, "http://%s",loginwebsite); 
+    curl_easy_setopt(curl, CURLOPT_URL,temp);
+    curl_easy_setopt(curl, CURLOPT_HTTPGET,1L);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION,CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,5);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION,header_callback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerdata);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, url_callback);
+    res = curl_easy_perform(curl);
+    if(res != CURLE_OK)
+    {
+      printf("get url failed\n");
+      exit(1);
+    }
+    char *line = strtok(headerdata.secret,"\n");
+    int lineNumber = 1;
+    while(line != NULL)
+    {
+    if(strstr(line, "wlanuserip") != NULL)
+    {
+        char temp[strlen(line)-50];
+        memcpy(temp,line + 50,strlen(line)-49);
+        loginURl = malloc(strlen(line)-50);
+        loginURl = temp;
+        strcpy(queryString,loginURl);
+    }
+    if(strstr(line, "./success") != NULL)
+    {
+        printf("提示:\n");
+        printf("    success\n");
+
+        exit(0);
+    }
+
+    line = strtok(NULL, "\n");
+    lineNumber++;
+    }
+    return 0;                                                               
+
+}
 int main(int argc, char *argv[])
 {   
-    char *queryString;
     struct user my;
     int optc;
     my.username = NULL;
     my.pwd = NULL;
     my.nettype = NULL;
-    while((optc = getopt_long(argc, argv, "hVu:p:s:", longopts, NULL)) != -1)
+    my.loginwebsite = NULL;
+    while((optc = getopt_long(argc, argv, "hVu:p:s:w:", longopts, NULL)) != -1)
     {
         switch (optc)
         {
@@ -327,18 +339,45 @@ int main(int argc, char *argv[])
         case 's':
             my.nettype = optarg;
             break;
+        case 'w':               
+            my.loginwebsite = optarg;
+            break;              
         default:
             break;
         }
     }
     check_information(my);
-
-    printf("username : %s\n",my.username);
-    printf("service : %s\n",my.nettype);
-    queryString = (char *)malloc(200 * sizeof(char));
-    getUrl("./get2.html",queryString);
-    queryString = transcode(queryString , 200);
-    login(queryString, my.username, my.pwd, my.nettype);
-    free(queryString);
+    const char *test_host = "1.1.1.1";
+    int timeout = 2; // 2秒超时
+    while (1)
+     {
+      printf("正在检测网络连接...\n");
+      if (is_network_available(test_host, timeout)) {
+          printf("网络连接正常\n");
+      } else {
+          printf("网络连接失败,开始尝试连接校园网\n");
+          printf("学号 : %s\n",my.username);                                            
+          printf("运营商 : %s\n",my.nettype);                                              
+          printf("登录网站地址 : %s\n",my.loginwebsite);                                   
+          CURL *curl;                                                                       
+          CURLcode res;                                                                     
+          curl_global_init(CURL_GLOBAL_ALL);                                                
+          curl = curl_easy_init();                                                          
+          //queryString = (char *)malloc(200 * sizeof(char));                               
+          if(curl)                                                                          
+          {                                                                                 
+            char *queryString;                                                              
+            queryString = (char *)malloc(200 * sizeof(char));                               
+            get_final_redirect_url(my.loginwebsite, queryString, curl, res);                
+            queryString = transcode(queryString , 200);                                     
+            login(queryString, my.username, my.pwd, my.nettype, my.loginwebsite, curl, res);
+            curl_easy_cleanup(curl);                                                        
+            free(queryString );                                                             
+          }                                                                                 
+          curl_global_cleanup(); 
+        sleep(10);
+       }
+      sleep(300);
+     }
     return 0;
 }
