@@ -1,1 +1,3 @@
 *.log
+*.o
+c/login

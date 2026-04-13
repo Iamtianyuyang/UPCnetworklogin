@@ -1,119 +1,143 @@
-# Linux登录校园网
+# UPC 校园网登录工具
+
+中国石油大学（华东）校园网命令行登录工具，支持 C 和 Python 两个版本。基于锐捷 ePortal 认证协议，理论上也适用于其他使用相同系统的校园网。
 
 ![校园网登录界面](校园网登录界面.png)
 
-## c语言版使用方法(c)
+## 目录结构
 
-1. 编译 make
+```
+.
+├── c/              # C 语言版本
+│   ├── main.c
+│   └── Makefile
+├── python/         # Python 版本
+│   ├── main.py
+│   ├── function.py
+│   ├── get_opt.py
+│   └── my_info.py
+└── README.md
+```
 
-2. 参数设置
+## 参数说明
 
-       -h, --help          give you some information to better use this program
-       -V, --version       get this program version
-       -u, --username      your campus card ID
-       -p, --password      your campus card password
-       -s, --service       your campus network operator: cmcc or unicom or ctcc or default or local
+两个版本使用相同的命令行参数：
 
-3. 登录
+```
+-h, --help          显示帮助信息
+-V, --version       显示版本号
+-u, --username      校园卡学号
+-p, --password      校园卡密码
+-s, --service       运营商: cmcc | unicom | ctcc | default | local
+```
 
-   ```
-   ./login -u campuscardid -p campuscardpwd -s cmcc
-   ```
-4. 启动方式
+---
 
-   ```
-   sudo vim /etc/systemd/system/upc.service
-   [Unit]
-   # 服务名称，可自定义
-   Description = upc client
-   After = network.target syslog.target
-   Wants = network.target
+## C 版本
 
-   [Service]
-   Type = simple
-   # 启动login的命令，需修改为您的login的安装路径
-   ExecStart = /path/login -u campuscardid -p  campuscardpwd -s cmcc
-       
-   [Install]
-   WantedBy = multi-user.target
-   ##启动服务
-   sudo systemctl daemon-reload
-   sudo systemctl start upc.service
-   ##开机自启
-   sudo systemctl enable upc.service
-   ##查看状态
-   sudo systemctl status upc.service
-   ```
-## python版使用方法(python)
+### 依赖
 
-1. 环境
-   `python 3.10.0`
+- `gcc`
+- `libcurl`
 
-   库
-   `pycurl`
+### 编译
 
-2. 使用方法
+```bash
+cd c
+make
+```
 
-   ```
-   python main.py -u campuscardid -p campuscardpwd -s cmcc
-   ```
+### 使用
 
-​	c语言在跨平台的使用上确实不方便所以开发了python版，程序里增加了自定义`url`，如果你想试试自己的校园网能否使用修改试试。
+```bash
+./login -u 学号 -p 密码 -s cmcc
+```
 
-## 结果
+### 开机自启（systemd）
 
-1. 登录成功
+```bash
+sudo vim /etc/systemd/system/upc.service
+```
 
-   ```
-   username : campuscardid
-   service : cmcc
-   NOTICE:
-       success
-   ```
+```ini
+[Unit]
+Description = UPC campus network login
+After = network.target syslog.target
+Wants = network.target
 
-2. 登录失败 
+[Service]
+Type = simple
+ExecStart = /path/to/login -u 学号 -p 密码 -s cmcc
 
-   ```
-   username : campuscardid
-   service : cmcc
-   NOTICE:
-       fail
-       WEB认证设备未注册，请确认SAM+/portal/设备上的参数配置是否一致
-   ```
+[Install]
+WantedBy = multi-user.target
+```
 
-   ```
-   username : campuscardid
-   service : cmcc
-   NOTICE:
-       fail
-       用户不存在或者密码错误!
-   ```
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start upc.service
+sudo systemctl enable upc.service   # 开机自启
+sudo systemctl status upc.service   # 查看状态
+```
 
-   ```
-   username : campuscardid
-   service : ctcc
-   NOTICE:
-       fail
-       您未绑定服务对应的运营商!
-   ```
+---
 
-​	
+## Python 版本
 
-## 缺憾
+### 依赖
 
-1. 没有检测是否已经登录成功。
-   如果使用定时检测是否链接互联网，可以
+- Python 3.10+
+- `pycurl`
 
-   ```
-   ping www.baidu.com
-   ```
+```bash
+pip install pycurl
+```
 
-   或者`ping`其他地址。
+### 使用
 
-2. 目前代码只支持中国石油大学（华东）。
-   但是应该其他锐捷的登录也是可以实现的，如果你有什么问题可以联系我。
-   `Email：tianyuyang666@gmail.com`
-   
-3. 代码默认为有线连接的校园网登录认证，如果需要无线校园网认证，只需要将lan.upc.edu.cn改为wlan.upc.edu.cn。
+```bash
+cd python
+python main.py -u 学号 -p 密码 -s cmcc
+```
 
+---
 
+## 输出示例
+
+登录成功：
+
+```
+username : 学号
+service  : cmcc
+logging in...
+NOTICE:
+    success
+    登录成功
+```
+
+登录失败（密码错误）：
+
+```
+NOTICE:
+    fail
+    用户不存在或者密码错误!
+```
+
+登录失败（运营商不匹配）：
+
+```
+NOTICE:
+    fail
+    您未绑定服务对应的运营商!
+```
+
+---
+
+## 说明
+
+- 默认连接有线校园网（`lan.upc.edu.cn`）。如需无线校园网认证，将代码中的 `lan.upc.edu.cn` 改为 `wlan.upc.edu.cn`。
+- 如需定时检测网络状态，可配合 `ping` 命令使用：
+  ```bash
+  ping -c 1 www.baidu.com || ./login -u 学号 -p 密码 -s cmcc
+  ```
+- 如有问题欢迎联系：`tianyuyang666@gmail.com`

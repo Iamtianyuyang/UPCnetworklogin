@@ -1,26 +1,17 @@
-INC = ./
-LIB = ./
-LIB += -lcurl
-OPT = -O3 -std=c99 -Wall 
-OBJS = 
+CC = gcc
+CFLAGS = -O2 -std=c99 -Wall
+LDFLAGS = -lcurl
+TARGET = login
 
-cc = gcc
+all: $(TARGET)
 
-.C.o:
-	$(CC) $(OPT) -I$(INC) -c $<
-.c.o:
-	$(CC) $(OPT) -I$(INC) -c $<
-.f.o:
-	$(FC) $(FOPT) -c $<
-.F.o:
-	$(FC) $(FOPT) -c $<
-all: login
+$(TARGET): main.o
+	$(CC) $(CFLAGS) -o $(TARGET) main.o $(LDFLAGS)
 
-login: main.o $(OBJS)
-		$(cc) $(OPT) -o login $(OBJS) main.o -L$(LIB)
+main.o: main.c
+	$(CC) $(CFLAGS) -c main.c
 
 clean:
-	rm -f login *~
+	rm -f $(TARGET) main.o *~
 
-cleanall:
-	rm -f logim *~ *.o
+.PHONY: all clean
