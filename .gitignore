@@ -1,3 +1,4 @@
 /target
 *.log
 /docs
+config.toml

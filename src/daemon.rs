@@ -1,18 +1,20 @@
 use anyhow::Result;
 
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use crate::network;
 use crate::output;
 use crate::portal;
 
 pub fn run(
-    base_url: &str,
     username: &str,
     password: &str,
     service: &str,
+    interface: Option<String>,
     interval: u64,
     max_retries: u32,
 ) -> Result<()> {
@@ -29,54 +31,67 @@ pub fn run(
 
     let mut consecutive_failures: u32 = 0;
     let mut current_interval = interval;
+    let mut last_local_ip: Option<IpAddr> = None;
 
     while running.load(Ordering::SeqCst) {
-        let client = match portal::build_client() {
-            Ok(c) => c,
+        // 每轮都重新解析本地地址：无线重连后 IP 可能变化，绑着旧地址会永远连不上
+        let local_ip = match network::local_ip(interface.as_deref()) {
+            Ok(ip) => ip,
             Err(e) => {
-                output::print_daemon_error(&format!("创建HTTP客户端失败: {}", e));
+                consecutive_failures += 1;
+                output::print_daemon_error(&format!("获取本地地址失败: {}", e));
+                apply_backoff(
+                    &mut consecutive_failures,
+                    &mut current_interval,
+                    max_retries,
+                    interval,
+                );
                 sleep_with_interrupt(running.clone(), Duration::from_secs(current_interval));
                 continue;
             }
         };
 
-        match portal::check_needs_login(&client, base_url) {
-            Ok(true) => {
-                output::print_daemon_status("检测到需要登录，正在自动登录...");
+        if local_ip != last_local_ip {
+            match local_ip {
+                Some(ip) => output::print_daemon_status(&format!("当前本地地址: {}", ip)),
+                None => output::print_daemon_status("当前本地地址: 系统默认出口"),
+            }
+            last_local_ip = local_ip;
+        }
 
-                let info = match portal::get_portal_info(&client, base_url) {
-                    Ok(i) => i,
-                    Err(e) => {
-                        output::print_daemon_error(&format!("获取登录参数失败: {}", e));
-                        consecutive_failures += 1;
-                        apply_backoff(
-                            &mut consecutive_failures,
-                            &mut current_interval,
-                            max_retries,
-                            interval,
-                        );
-                        sleep_with_interrupt(running.clone(), Duration::from_secs(current_interval));
-                        continue;
-                    }
-                };
+        let session = portal::Session::new(local_ip);
+
+        match portal::discover(&session) {
+            Ok(Some(info)) => {
+                output::print_daemon_status("检测到需要登录，正在自动登录...");
 
                 let encoded = crate::transcode::transcode(&info.query_string);
 
                 match portal::login(
-                    &client,
+                    &session,
                     &info.base_url,
                     &encoded,
                     username,
                     password,
                     service,
                 ) {
-                    Ok(_) => {
+                    Ok(true) => {
                         consecutive_failures = 0;
                         current_interval = interval;
                     }
-                    Err(e) => {
-                        output::print_daemon_error(&format!("登录失败: {}", e));
+                    Ok(false) => {
                         consecutive_failures += 1;
+                        output::print_daemon_error("登录被服务端拒绝");
+                        apply_backoff(
+                            &mut consecutive_failures,
+                            &mut current_interval,
+                            max_retries,
+                            interval,
+                        );
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        output::print_daemon_error(&format!("登录失败: {}", e));
                         apply_backoff(
                             &mut consecutive_failures,
                             &mut current_interval,
@@ -86,7 +101,7 @@ pub fn run(
                     }
                 }
             }
-            Ok(false) => {
+            Ok(None) => {
                 if consecutive_failures > 0 {
                     output::print_daemon_status("网络已恢复");
                 }
@@ -94,8 +109,8 @@ pub fn run(
                 current_interval = interval;
             }
             Err(e) => {
-                output::print_daemon_error(&format!("网络检测失败: {}", e));
                 consecutive_failures += 1;
+                output::print_daemon_error(&format!("网络检测失败: {}", e));
                 apply_backoff(
                     &mut consecutive_failures,
                     &mut current_interval,
@@ -112,18 +127,16 @@ pub fn run(
     Ok(())
 }
 
-fn apply_backoff(failures: &mut u32, current_interval: &mut u64, max_retries: u32, _base_interval: u64) {
+fn apply_backoff(failures: &mut u32, current_interval: &mut u64, max_retries: u32, base_interval: u64) {
     if *failures >= max_retries {
-        let backoff = (*current_interval * 2).min(300);
-        output::print_daemon_error(&format!(
-            "连续失败 {} 次，退避至 {}s",
-            failures, backoff
-        ));
+        let backoff = (*current_interval * 2).min(300).max(base_interval);
+        output::print_daemon_error(&format!("连续失败 {} 次，退避至 {}s", failures, backoff));
         *current_interval = backoff;
     }
 }
 
 fn ctrlc_handler(running: Arc<AtomicBool>) {
+    // Unix 下响应 SIGTERM；Windows 上无效（仅 Ctrl+C 生效）
     let _ = signal_hook::flag::register(signal_hook::consts::SIGTERM, running.clone());
     let r2 = running.clone();
     ctrlc::set_handler(move || {

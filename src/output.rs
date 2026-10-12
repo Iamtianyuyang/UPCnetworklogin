@@ -20,11 +20,12 @@ pub fn print_logging_in() -> ProgressBar {
 }
 
 pub fn print_login_success(message: &str) {
-    println!(
-        "{} {}",
-        "✅".green(),
-        format!("登录成功: {}", message).green()
-    );
+    let text = if message.trim().is_empty() {
+        "登录成功".to_string()
+    } else {
+        format!("登录成功: {}", message)
+    };
+    println!("{} {}", "✅".green(), text.green());
 }
 
 pub fn print_login_failure(message: &str) {
@@ -48,11 +49,12 @@ pub fn print_logout() {
 }
 
 pub fn print_logout_success(message: &str) {
-    println!(
-        "{} {}",
-        "✅".green(),
-        format!("登出成功: {}", message).green()
-    );
+    let text = if message.trim().is_empty() {
+        "登出成功".to_string()
+    } else {
+        format!("登出成功: {}", message)
+    };
+    println!("{} {}", "✅".green(), text.green());
 }
 
 pub fn print_logout_failure(message: &str) {
@@ -60,6 +62,14 @@ pub fn print_logout_failure(message: &str) {
         "{} {}",
         "❌".red(),
         format!("登出失败: {}", message).red()
+    );
+}
+
+pub fn print_logout_not_needed(message: &str) {
+    println!(
+        "{} {}",
+        "ℹ️".bright_blue(),
+        format!("无需登出: {}", message).bright_blue()
     );
 }
 
