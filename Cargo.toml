@@ -1,7 +1,10 @@
 [package]
 name = "upc-login"
-version = "2.1.0"
+version = "0.0.1"
 edition = "2021"
+description = "UPC (China University of Petroleum) campus network CLI login tool for Ruijie ePortal"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 socket2 = "0.6"

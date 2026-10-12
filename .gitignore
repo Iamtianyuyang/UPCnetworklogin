@@ -2,3 +2,4 @@
 *.log
 /docs
 config.toml
+/dist

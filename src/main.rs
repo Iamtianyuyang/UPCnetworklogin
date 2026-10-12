@@ -8,7 +8,7 @@ mod output;
 mod portal;
 mod transcode;
 
-const VERSION: &str = "2.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
 #[command(name = "upc-login", version = VERSION, about = "UPC 校园网登录工具")]
