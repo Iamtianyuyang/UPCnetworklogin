@@ -48,7 +48,17 @@ pub struct DaemonConfig {
     pub max_retries: Option<u32>,
 }
 
+/// 用户级配置路径。
+///
+/// macOS 的 `dirs::config_dir()` 是 `~/Library/Application Support`（路径带空格，命令行里
+/// 不好敲），而命令行工具在 macOS/Linux 上都习惯用 `~/.config`，所以 unix 上统一用
+/// `~/.config/upc-login/config.toml`；Windows 仍用 `%APPDATA%\upc-login\config.toml`。
 fn user_config_path() -> PathBuf {
+    #[cfg(unix)]
+    if let Some(home) = dirs::home_dir() {
+        return home.join(".config").join("upc-login").join("config.toml");
+    }
+
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("upc-login").join("config.toml")
 }
@@ -57,7 +67,8 @@ fn user_config_path() -> PathBuf {
 /// 1. 环境变量 UPC_CONFIG
 /// 2. 当前工作目录下的 config.toml（项目/程序目录，推荐）
 /// 3. 可执行文件同目录的 config.toml
-/// 4. 用户配置目录 %APPDATA%\upc-login\config.toml（Linux: ~/.config/upc-login/）
+/// 4. 用户配置目录：Windows `%APPDATA%\upc-login\config.toml`，
+///    macOS / Linux `~/.config/upc-login/config.toml`
 pub fn config_path() -> PathBuf {
     if let Ok(p) = std::env::var("UPC_CONFIG") {
         if !p.trim().is_empty() {
@@ -108,9 +119,13 @@ pub fn load() -> Result<Config> {
 }
 
 pub fn init_config() -> Result<()> {
-    let path = match std::env::current_dir() {
-        Ok(dir) => dir.join("config.toml"),
-        Err(_) => user_config_path(),
+    // 设置了 UPC_CONFIG 就写到那儿；否则写当前工作目录
+    let path = match std::env::var("UPC_CONFIG") {
+        Ok(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => match std::env::current_dir() {
+            Ok(dir) => dir.join("config.toml"),
+            Err(_) => user_config_path(),
+        },
     };
 
     if path.exists() {

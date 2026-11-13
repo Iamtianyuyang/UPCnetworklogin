@@ -21,7 +21,7 @@ pub fn run(
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
-    ctrlc_handler(r);
+    shutdown_handler(r);
 
     output::print_daemon_status("守护进程已启动");
     output::print_daemon_status(&format!(
@@ -53,7 +53,12 @@ pub fn run(
 
         if local_ip != last_local_ip {
             match local_ip {
-                Some(ip) => output::print_daemon_status(&format!("当前本地地址: {}", ip)),
+                Some(ip) => {
+                    let iface = network::interface_name(ip)
+                        .map(|name| format!(" [{}]", name))
+                        .unwrap_or_default();
+                    output::print_daemon_status(&format!("当前本地地址: {}{}", ip, iface));
+                }
                 None => output::print_daemon_status("当前本地地址: 系统默认出口"),
             }
             last_local_ip = local_ip;
@@ -127,7 +132,12 @@ pub fn run(
     Ok(())
 }
 
-fn apply_backoff(failures: &mut u32, current_interval: &mut u64, max_retries: u32, base_interval: u64) {
+fn apply_backoff(
+    failures: &mut u32,
+    current_interval: &mut u64,
+    max_retries: u32,
+    base_interval: u64,
+) {
     if *failures >= max_retries {
         let backoff = (*current_interval * 2).min(300).max(base_interval);
         output::print_daemon_error(&format!("连续失败 {} 次，退避至 {}s", failures, backoff));
@@ -135,14 +145,32 @@ fn apply_backoff(failures: &mut u32, current_interval: &mut u64, max_retries: u3
     }
 }
 
-fn ctrlc_handler(running: Arc<AtomicBool>) {
-    // Unix 下响应 SIGTERM；Windows 上无效（仅 Ctrl+C 生效）
-    let _ = signal_hook::flag::register(signal_hook::consts::SIGTERM, running.clone());
-    let r2 = running.clone();
-    ctrlc::set_handler(move || {
-        r2.store(false, Ordering::SeqCst);
-    })
-    .ok();
+fn shutdown_handler(running: Arc<AtomicBool>) {
+    // signal_hook 的 flag::register 只会把标记置为 true，没法表达"置 false 表示退出"，
+    // 所以这里用 low_level 自定义动作（AtomicBool::store 是 async-signal-safe 的）：
+    // SIGTERM 来自 systemctl stop / launchctl stop，SIGINT 来自 Ctrl+C。
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        for signal in [SIGINT, SIGTERM] {
+            let flag = running.clone();
+            // 安全：闭包里只做原子存储，不分配、不加锁，可在信号上下文执行
+            unsafe {
+                let _ = signal_hook::low_level::register(signal, move || {
+                    flag.store(false, Ordering::SeqCst);
+                });
+            }
+        }
+    }
+
+    // Windows 上没有 SIGTERM，Ctrl+C 交给 ctrlc
+    #[cfg(windows)]
+    {
+        let r2 = running.clone();
+        let _ = ctrlc::set_handler(move || {
+            r2.store(false, Ordering::SeqCst);
+        });
+    }
 }
 
 fn sleep_with_interrupt(running: Arc<AtomicBool>, duration: Duration) {

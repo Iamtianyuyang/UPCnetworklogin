@@ -4,6 +4,12 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+/// UA 跟随编译平台，避免向认证网关自称 "X11; Linux" 这种与真实机器不符的标识
+#[cfg(target_os = "macos")]
+const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
+#[cfg(target_os = "windows")]
+const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
 
 /// 未被拦截时的兜底门户地址（登出时没有 queryString 可用）
@@ -58,7 +64,11 @@ impl Session {
 
         let stream = match self.local_ip {
             Some(local) => {
-                let domain = if local.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+                let domain = if local.is_ipv4() {
+                    Domain::IPV4
+                } else {
+                    Domain::IPV6
+                };
                 let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
                 socket.bind(&SocketAddr::new(local, 0).into())?;
                 socket.connect_timeout(&target.into(), TIMEOUT)?;
@@ -96,7 +106,7 @@ impl Session {
         req.push_str("Accept: */*\r\n");
         if let Some(b) = body {
             req.push_str("Content-Type: application/x-www-form-urlencoded; charset=UTF-8\r\n");
-            req.push_str(&format!("Content-Length: {}\r\n", b.as_bytes().len()));
+            req.push_str(&format!("Content-Length: {}\r\n", b.len()));
         }
         req.push_str("Connection: close\r\n\r\n");
         if let Some(b) = body {
@@ -150,7 +160,11 @@ fn parse_response(raw: &[u8]) -> Result<Response> {
         }
     }
 
-    Ok(Response { status, location, body })
+    Ok(Response {
+        status,
+        location,
+        body,
+    })
 }
 
 fn extract_base_url(location: &str) -> Option<String> {
@@ -158,7 +172,11 @@ fn extract_base_url(location: &str) -> Option<String> {
     let scheme_end = url.find("://")?;
     let after_scheme = &url[scheme_end + 3..];
     let host_end = after_scheme.find('/').unwrap_or(after_scheme.len());
-    Some(format!("{}://{}", &url[..scheme_end], &after_scheme[..host_end]))
+    Some(format!(
+        "{}://{}",
+        &url[..scheme_end],
+        &after_scheme[..host_end]
+    ))
 }
 
 /// 探测当前线路状态：
@@ -240,8 +258,14 @@ pub fn login(
         )
     })?;
 
-    let result = body.get("result").and_then(|v| v.as_str()).unwrap_or("未知");
-    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("未知");
+    let result = body
+        .get("result")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未知");
+    let message = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未知");
 
     if result == "success" {
         crate::output::print_login_success(message);
@@ -249,12 +273,8 @@ pub fn login(
     } else {
         crate::output::print_login_failure(message);
         if message.contains("认证失败") {
-            eprintln!(
-                "   提示: 该响应通常表示 queryString 里的 wlanuserip 与请求源 IP 不一致，"
-            );
-            eprintln!(
-                "   请确认已用 -i 指定目标网卡（程序会绑定其 IPv4 地址作为源地址）。"
-            );
+            eprintln!("   提示: 该响应通常表示 queryString 里的 wlanuserip 与请求源 IP 不一致，");
+            eprintln!("   请确认已用 -i 指定目标网卡（程序会绑定其 IPv4 地址作为源地址）。");
         }
         Ok(false)
     }
@@ -275,8 +295,14 @@ pub fn logout(session: &Session, base_url: &str) -> Result<bool> {
         )
     })?;
 
-    let result = body.get("result").and_then(|v| v.as_str()).unwrap_or("未知");
-    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("未知");
+    let result = body
+        .get("result")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未知");
+    let message = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未知");
 
     if result == "success" {
         crate::output::print_logout_success(message);
@@ -326,9 +352,6 @@ mod tests {
         let raw = b"HTTP/1.0 302 Moved Temporarily\r\nServer: NetEngine Server 1.0\r\nLocation: http://wlan.upc.edu.cn/eportal/index.jsp?wlanuserip=172.24.132.4\r\n\r\n";
         let resp = parse_response(raw).unwrap();
         assert_eq!(resp.status, 302);
-        assert!(resp
-            .location
-            .unwrap()
-            .contains("wlanuserip=172.24.132.4"));
+        assert!(resp.location.unwrap().contains("wlanuserip=172.24.132.4"));
     }
 }

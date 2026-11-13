@@ -34,10 +34,6 @@ pub fn transcode(s: &str) -> String {
     .collect();
 
     s.chars()
-        .map(|c| {
-            map.get(&c)
-                .unwrap_or(&c.to_string().as_str())
-                .to_string()
-        })
+        .map(|c| map.get(&c).unwrap_or(&c.to_string().as_str()).to_string())
         .collect()
 }

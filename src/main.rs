@@ -154,7 +154,14 @@ fn main() -> Result<()> {
                 .service
                 .ok_or_else(|| anyhow::anyhow!("守护进程模式需要在 config.toml 中设置运营商"))?;
 
-            daemon::run(&username, &password, &service, interface, interval, max_retries)?;
+            daemon::run(
+                &username,
+                &password,
+                &service,
+                interface,
+                interval,
+                max_retries,
+            )?;
         }
         Commands::Config { init } => {
             if init {
