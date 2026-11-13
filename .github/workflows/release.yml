@@ -1,0 +1,86 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            setup: sudo apt-get update && sudo apt-get install -y musl-tools
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            setup: ""
+            ext: ".exe"
+          - os: macos-13
+            target: x86_64-apple-darwin
+            setup: ""
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install toolchain helpers
+        if: matrix.setup != ''
+        shell: bash
+        run: ${{ matrix.setup }}
+
+      - name: Determine tag
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          T="${{ matrix.target }}"
+          BIN="target/$T/release/upc-login${{ matrix.ext }}"
+          ASSET="upc-login-${TAG}-${T}${{ matrix.ext }}"
+          cp "$BIN" "$ASSET"
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+
+      - name: Checksums
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null; then sha256sum "$ASSET" | tee "$ASSET.sha256"; else shasum -a 256 "$ASSET" | tee "$ASSET.sha256"; fi
+          echo "CHECKSUM=$ASSET.sha256" >> "$GITHUB_ENV"
+
+      - name: Publish to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          for i in $(seq 1 10); do
+            gh release view "$TAG" >/dev/null 2>&1 && break
+            gh release create "$TAG" --title "$TAG" --notes "Release $TAG" 2>/dev/null || true
+            sleep 2
+          done
+          gh release upload "$TAG" "$ASSET" "$CHECKSUM" --clobber
